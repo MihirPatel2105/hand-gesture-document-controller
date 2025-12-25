@@ -12,6 +12,8 @@ OS_NAME = platform.system()
 MINIMIZE_COOLDOWN = 1.2
 SCROLL_SENSITIVITY = 300
 SCROLL_THRESHOLD = 0.015
+BRIGHTNESS_COOLDOWN = 0.3  # Cooldown for brightness changes
+BRIGHTNESS_STEP = 0.0625  # 5% brightness change per gesture => 0.0625 is for MAC
 
 # ================= MEDIAPIPE TASKS =================
 base_options = BaseOptions(
@@ -31,6 +33,7 @@ landmarker = vision.HandLandmarker.create_from_options(options)
 # ================= STATE =================
 prev_finger_count = 0
 last_minimize_time = 0
+last_brightness_time = 0
 prev_scroll_y = None
 
 # ================= HELPERS =================
@@ -51,6 +54,25 @@ def minimize_window():
         pyautogui.hotkey("command", "m")
     elif OS_NAME == "Windows":
         pyautogui.hotkey("win", "d")
+
+def brightness_up():
+    """Increase screen brightness"""
+    if OS_NAME == "Darwin":
+        import subprocess
+        subprocess.run(["osascript", "-e", 
+                       "tell application \"System Events\" to key code 144"])
+    elif OS_NAME == "Windows":
+        # For Windows, you might need additional libraries
+        pyautogui.press("brightnessup")
+
+def brightness_down():
+    """Decrease screen brightness"""
+    if OS_NAME == "Darwin":
+        import subprocess
+        subprocess.run(["osascript", "-e", 
+                       "tell application \"System Events\" to key code 145"])
+    elif OS_NAME == "Windows":
+        pyautogui.press("brightnessdown")
 
 # ================= CAMERA =================
 cap = cv2.VideoCapture(0)
@@ -98,6 +120,20 @@ while cap.isOpened():
             prev_scroll_y = current_y
         else:
             prev_scroll_y = None
+
+        # ===== GESTURE 3: BRIGHTNESS UP (3 fingers) =====
+        if finger_count == 3 and not fingers[4]:
+            if now - last_brightness_time > BRIGHTNESS_COOLDOWN:
+                brightness_up()
+                last_brightness_time = now
+                status = "ACTION: Brightness UP"
+
+        # ===== GESTURE 4: BRIGHTNESS DOWN (4 fingers) =====
+        if finger_count == 4:
+            if now - last_brightness_time > BRIGHTNESS_COOLDOWN:
+                brightness_down()
+                last_brightness_time = now
+                status = "ACTION: Brightness DOWN"
 
     cv2.putText(frame, status, (20, 50),
                 cv2.FONT_HERSHEY_SIMPLEX, 1,
