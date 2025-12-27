@@ -14,6 +14,7 @@ SCROLL_SENSITIVITY = 300
 SCROLL_THRESHOLD = 0.015
 BRIGHTNESS_COOLDOWN = 0.3  # Cooldown for brightness changes
 BRIGHTNESS_STEP = 0.0625  # 5% brightness change per gesture => 0.0625 is for MAC
+PAGE_COOLDOWN = 0.8
 
 # ================= MEDIAPIPE TASKS =================
 base_options = BaseOptions(
@@ -34,7 +35,9 @@ landmarker = vision.HandLandmarker.create_from_options(options)
 prev_finger_count = 0
 last_minimize_time = 0
 last_brightness_time = 0
+last_page_time = 0
 prev_scroll_y = None
+prev_thumb_state = None  # Track thumb state for page navigation
 
 # ================= HELPERS =================
 def count_fingers(landmarks):
@@ -73,6 +76,40 @@ def brightness_down():
                        "tell application \"System Events\" to key code 145"])
     elif OS_NAME == "Windows":
         pyautogui.press("brightnessdown")
+
+def detect_thumb_direction(landmarks):
+    """Detect if thumb is pointing left or right"""
+    thumb_tip = landmarks[4]
+    thumb_base = landmarks[2]
+    index_base = landmarks[5]
+    
+    # Check if thumb is extended (away from palm)
+    thumb_extended = abs(thumb_tip.x - index_base.x) > 0.15
+    
+    if not thumb_extended:
+        return None
+    
+    # Thumb pointing right (next page)
+    if thumb_tip.x > thumb_base.x + 0.08:
+        return "right"
+    # Thumb pointing left (previous page)
+    elif thumb_tip.x < thumb_base.x - 0.08:
+        return "left"
+    return None
+
+def next_page():
+    """Navigate to next page"""
+    if OS_NAME == "Darwin":
+        pyautogui.press("right")
+    elif OS_NAME == "Windows":
+        pyautogui.press("pagedown")
+
+def previous_page():
+    """Navigate to previous page"""
+    if OS_NAME == "Darwin":
+        pyautogui.press("left")
+    elif OS_NAME == "Windows":
+        pyautogui.press("pageup")
 
 # ================= CAMERA =================
 cap = cv2.VideoCapture(0)
@@ -134,6 +171,22 @@ while cap.isOpened():
                 brightness_down()
                 last_brightness_time = now
                 status = "ACTION: Brightness DOWN"
+
+        # ===== GESTURE 5 & 6: PAGE NAVIGATION (Thumbs Up with direction) =====
+        # Only when fist is closed (no other fingers up)
+        if finger_count == 0:
+            thumb_dir = detect_thumb_direction(lm)
+            
+            if thumb_dir:
+                if now - last_page_time > PAGE_COOLDOWN:
+                    if thumb_dir == "right":
+                        next_page()
+                        status = "ACTION: Next Page →"
+                        last_page_time = now
+                    elif thumb_dir == "left":
+                        previous_page()
+                        status = "ACTION: Previous Page ←"
+                        last_page_time = now
 
     cv2.putText(frame, status, (20, 50),
                 cv2.FONT_HERSHEY_SIMPLEX, 1,
