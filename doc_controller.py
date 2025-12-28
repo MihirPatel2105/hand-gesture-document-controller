@@ -54,11 +54,29 @@ def count_fingers(landmarks):
 
     return fingers
 
+def is_left_hand(landmarks):
+    """Detect if the hand is left or right based on thumb position"""
+    # Compare thumb tip (4) and pinky tip (20) x-coordinates
+    # For left hand: thumb is on the right side (higher x value)
+    # For right hand: thumb is on the left side (lower x value)
+    thumb_x = landmarks[4].x
+    pinky_x = landmarks[20].x
+    
+    # Left hand: thumb_x > pinky_x (thumb is to the right of pinky)
+    return thumb_x > pinky_x
+
 def minimize_window():
     if OS_NAME == "Darwin":
         pyautogui.hotkey("command", "m")
     elif OS_NAME == "Windows":
         pyautogui.hotkey("win", "d")
+
+    if result.hand_landmarks:
+        lm = result.hand_landmarks[0]
+
+        fingers = count_fingers(lm)
+        finger_count = sum(fingers)
+        now = time.time()
 
 def brightness_up():
     """Increase screen brightness"""
@@ -162,12 +180,17 @@ while cap.isOpened():
         finger_count = sum(fingers)
         now = time.time()
 
+        # Detect hand laterality
+        is_left = is_left_hand(lm)
+
         # ===== GESTURE 1: MINIMIZE =====
-        if finger_count == 0 and prev_finger_count >= 4:
+        if finger_count == 0 and prev_finger_count >= 4 and is_left:
             if now - last_minimize_time > MINIMIZE_COOLDOWN:
                 minimize_window()
                 last_minimize_time = now
-                status = "ACTION: Minimize"
+                status = "ACTION: Minimize (Left Hand)"
+
+        prev_finger_count = finger_count
 
         prev_finger_count = finger_count
 
