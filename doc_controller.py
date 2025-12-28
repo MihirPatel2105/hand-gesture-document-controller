@@ -15,6 +15,7 @@ SCROLL_THRESHOLD = 0.015
 BRIGHTNESS_COOLDOWN = 0.3  # Cooldown for brightness changes
 BRIGHTNESS_STEP = 0.0625  # 5% brightness change per gesture => 0.0625 is for MAC
 PAGE_COOLDOWN = 0.8
+VOLUME_COOLDOWN = 0.3 
 
 # ================= MEDIAPIPE TASKS =================
 base_options = BaseOptions(
@@ -36,6 +37,7 @@ prev_finger_count = 0
 last_minimize_time = 0
 last_brightness_time = 0
 last_page_time = 0
+last_volume_time = 0
 prev_scroll_y = None
 prev_thumb_state = None  # Track thumb state for page navigation
 
@@ -78,23 +80,31 @@ def brightness_down():
         pyautogui.press("brightnessdown")
 
 def detect_thumb_direction(landmarks):
-    """Detect if thumb is pointing left or right"""
+    """Detect if thumb is pointing left, right, up, or down"""
     thumb_tip = landmarks[4]
     thumb_base = landmarks[2]
     index_base = landmarks[5]
+    wrist = landmarks[0]
     
     # Check if thumb is extended (away from palm)
-    thumb_extended = abs(thumb_tip.x - index_base.x) > 0.15
+    thumb_extended = abs(thumb_tip.x - index_base.x) > 0.1 or abs(thumb_tip.y - index_base.y) > 0.1
     
     if not thumb_extended:
         return None
     
+    # Thumb pointing up (volume up)
+    if thumb_tip.y < thumb_base.y - 0.08 and thumb_tip.y < wrist.y:
+        return "up"
+    # Thumb pointing down (volume down)
+    elif thumb_tip.y > thumb_base.y + 0.08 and thumb_tip.y > index_base.y:
+        return "down"
     # Thumb pointing right (next page)
-    if thumb_tip.x > thumb_base.x + 0.08:
+    elif thumb_tip.x > thumb_base.x + 0.08:
         return "right"
     # Thumb pointing left (previous page)
     elif thumb_tip.x < thumb_base.x - 0.08:
         return "left"
+    
     return None
 
 def next_page():
@@ -110,6 +120,24 @@ def previous_page():
         pyautogui.press("left")
     elif OS_NAME == "Windows":
         pyautogui.press("pageup")
+
+def volume_up():
+    """Increase system volume"""
+    if OS_NAME == "Darwin":
+        import subprocess
+        subprocess.run(["osascript", "-e", 
+                       "set volume output volume ((output volume of (get volume settings)) + 6.25)"])
+    elif OS_NAME == "Windows":
+        pyautogui.press("volumeup")
+
+def volume_down():
+    """Decrease system volume"""
+    if OS_NAME == "Darwin":
+        import subprocess
+        subprocess.run(["osascript", "-e", 
+                       "set volume output volume ((output volume of (get volume settings)) - 6.25)"])
+    elif OS_NAME == "Windows":
+        pyautogui.press("volumedown")
 
 # ================= CAMERA =================
 cap = cv2.VideoCapture(0)
@@ -172,21 +200,28 @@ while cap.isOpened():
                 last_brightness_time = now
                 status = "ACTION: Brightness DOWN"
 
-        # ===== GESTURE 5 & 6: PAGE NAVIGATION (Thumbs Up with direction) =====
+        # ===== GESTURE 5, 6, 7, 8: THUMB GESTURES (Volume & Page Navigation) =====
         # Only when fist is closed (no other fingers up)
         if finger_count == 0:
             thumb_dir = detect_thumb_direction(lm)
             
             if thumb_dir:
-                if now - last_page_time > PAGE_COOLDOWN:
-                    if thumb_dir == "right":
-                        next_page()
-                        status = "ACTION: Next Page →"
-                        last_page_time = now
-                    elif thumb_dir == "left":
-                        previous_page()
-                        status = "ACTION: Previous Page ←"
-                        last_page_time = now
+                if thumb_dir == "up" and now - last_volume_time > VOLUME_COOLDOWN:
+                    volume_up()
+                    last_volume_time = now
+                    status = "ACTION: Volume UP 🔊"
+                elif thumb_dir == "down" and now - last_volume_time > VOLUME_COOLDOWN:
+                    volume_down()
+                    last_volume_time = now
+                    status = "ACTION: Volume DOWN 🔉"
+                elif thumb_dir == "right" and now - last_page_time > PAGE_COOLDOWN:
+                    next_page()
+                    status = "ACTION: Next Page →"
+                    last_page_time = now
+                elif thumb_dir == "left" and now - last_page_time > PAGE_COOLDOWN:
+                    previous_page()
+                    status = "ACTION: Previous Page ←"
+                    last_page_time = now
 
     cv2.putText(frame, status, (20, 50),
                 cv2.FONT_HERSHEY_SIMPLEX, 1,
